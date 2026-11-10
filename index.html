@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>던지기 사격장 - 연사 타겟 게임</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Jua&family=Noto+Sans+KR:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            background-color: #090d16;
+            color: #f8fafc;
+            overflow-x: hidden;
+        }
+
+        .font-jua { font-family: 'Jua', sans-serif; }
+        .font-black { font-family: 'Black Han Sans', sans-serif; }
+
+        /* Heavy impact glass shake */
+        .heavy-shake {
+            animation: heavyShake 0.25s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes heavyShake {
+            10%, 90% { transform: translate3d(-4px, -2px, 0) rotate(-1deg); }
+            20%, 80% { transform: translate3d(6px, 4px, 0) rotate(1.5deg); }
+            30%, 50%, 70% { transform: translate3d(-7px, -5px, 0) rotate(-1deg); }
+            40%, 60% { transform: translate3d(7px, 5px, 0) rotate(1deg); }
+        }
+
+        /* Active Item Button Glow */
+        .item-card.active {
+            border-color: #f43f5e;
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.25), rgba(15, 23, 42, 0.9));
+            box-shadow: 0 0 15px rgba(244, 63, 94, 0.5);
+            transform: scale(1.05);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { height: 6px; width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #f43f5e; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-between p-2 sm:p-4">
+
+    <!-- Top Header -->
+    <header class="w-full max-w-5xl flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-900/90 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-slate-800 shadow-xl">
+        <div class="flex items-center gap-3">
+            <div id="headerIcon" class="text-3xl sm:text-4xl animate-bounce">🎯</div>
+            <div>
+                <h1 class="font-black text-2xl sm:text-3xl text-rose-500 tracking-wide flex items-center gap-2">
+                    던지기 사격장
+                    <span class="text-xs font-sans font-normal bg-rose-950 text-rose-400 border border-rose-800 px-2.5 py-0.5 rounded-full">Pro Edition</span>
+                </h1>
+                <p class="text-xs text-slate-400">원하는 대상을 선택하고 화면을 꾹 눌러 연사하세요!</p>
+            </div>
+        </div>
+
+        <!-- Scores & Controls -->
+        <div class="flex items-center gap-3 bg-slate-950/80 px-4 py-2 rounded-xl border border-slate-800/80 w-full sm:w-auto justify-around sm:justify-end">
+            <div class="text-center">
+                <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">총 적중 수</div>
+                <div id="totalHitsEl" class="font-jua text-2xl sm:text-3xl text-rose-400">0</div>
+            </div>
+            <div class="h-8 w-px bg-slate-800"></div>
+            <div class="text-center">
+                <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">현재 선택</div>
+                <div id="currentItemDisplay" class="font-jua text-lg text-amber-400 flex items-center gap-1">
+                    <span>🍅</span> 토마토
+                </div>
+            </div>
+            <div class="h-8 w-px bg-slate-800"></div>
+            <button onclick="toggleStatsModal(true)" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-2 rounded-lg font-bold transition flex items-center gap-1 border border-slate-700" title="통계 보기">
+                <i class="fa-solid fa-chart-pie text-cyan-400"></i> 통계
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Game Screen Area -->
+    <main class="relative w-full max-w-5xl flex-1 flex flex-col items-center justify-center my-2">
+        <div id="gameContainer" class="relative w-full aspect-[4/3] sm:aspect-[16/10] bg-slate-900 rounded-2xl overflow-hidden border-2 border-slate-800 shadow-2xl cursor-crosshair select-none">
+            
+            <!-- Default Target Image -->
+            <img id="bgImage" src="assets/targets.jpg" alt="Target Image" class="absolute inset-0 w-full h-full object-contain bg-slate-950 pointer-events-none" onerror="this.src='https://placehold.co/800x600/1e293b/e11d48?text=Target+Image+Loaded';"/>
+
+            <!-- Glass Cracks & Permanent Splatter Canvas -->
+            <canvas id="splatCanvas" class="absolute inset-0 w-full h-full pointer-events-none z-10"></canvas>
+
+            <!-- Dynamic Projectiles, Flying Money, Smoke & Sparks Canvas -->
+            <canvas id="fxCanvas" class="absolute inset-0 w-full h-full pointer-events-none z-20"></canvas>
+
+            <!-- Squeegee Wiper Animation Bar -->
+            <div id="wiperOverlay" class="absolute top-0 left-0 w-10 h-full bg-cyan-400/30 border-r-4 border-cyan-200 backdrop-blur-sm z-30 transition-none hidden shadow-2xl flex items-center justify-center">
+                <div class="w-3 h-24 bg-slate-800 rounded-full border border-cyan-300"></div>
+            </div>
+
+            <!-- On-Screen Guidance Badge -->
+            <div id="guideBadge" class="absolute top-3 left-1/2 -translate-x-1/2 bg-slate-950/80 backdrop-blur-md px-4 py-1.5 rounded-full border border-slate-700 text-xs text-rose-200 pointer-events-none z-20 transition-opacity duration-500 flex items-center gap-2 shadow-lg">
+                <i class="fa-solid fa-crosshair text-rose-400 animate-pulse"></i>
+                <span>화면의 타겟을 클릭하거나 꾹 누르면 가속 발사됩니다!</span>
+            </div>
+        </div>
+    </main>
+
+    <!-- Item Selector & Controls Footer -->
+    <footer class="w-full max-w-5xl bg-slate-900/90 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-slate-800 space-y-3 shadow-xl">
+        
+        <!-- Throwable Items Toolbar -->
+        <div>
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                    <i class="fa-solid fa-hand-holding-hand text-rose-400"></i> 던질 아이템 선택 (7종)
+                </span>
+                <span class="text-[11px] text-slate-500">클릭 시 즉시 교체</span>
+            </div>
+            
+            <div id="itemToolbar" class="grid grid-cols-4 sm:grid-cols-7 gap-1.5 sm:gap-2">
+                <!-- Items injected via JavaScript -->
+            </div>
+        </div>
+
+        <!-- Controls Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 border-t border-slate-800/80">
+            <!-- 1. Rapid Fire Speed Config -->
+            <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800 flex flex-col justify-between">
+                <div class="flex items-center justify-between text-xs text-slate-400 font-bold mb-1.5">
+                    <span><i class="fa-solid fa-bolt text-amber-400 mr-1"></i> 연사 속도</span>
+                    <span id="speedLabel" class="text-amber-400 font-semibold">보통 (초당 5발)</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1">
+                    <button id="btnSpeedNormal" class="speed-btn bg-rose-600 text-white text-xs py-1.5 rounded-lg font-bold transition hover:bg-rose-500" onclick="setFireSpeed('normal')">보통</button>
+                    <button id="btnSpeedFast" class="speed-btn bg-slate-800 text-slate-300 text-xs py-1.5 rounded-lg font-bold transition hover:bg-slate-700" onclick="setFireSpeed('fast')">빠르게</button>
+                    <button id="btnSpeedStorm" class="speed-btn bg-slate-800 text-slate-300 text-xs py-1.5 rounded-lg font-bold transition hover:bg-slate-700" onclick="setFireSpeed('storm')">⚡ 폭풍연사</button>
+                </div>
+            </div>
+
+            <!-- 2. Utility Actions -->
+            <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800 flex flex-col justify-between">
+                <div class="text-xs text-slate-400 font-bold mb-1.5"><i class="fa-solid fa-broom text-cyan-400 mr-1"></i> 화면 청소 & 초기화</div>
+                <div class="flex gap-2">
+                    <button onclick="wipeScreen()" class="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs py-1.5 px-2 rounded-lg transition flex items-center justify-center gap-1 shadow-md">
+                        <i class="fa-solid fa-soap"></i> 화면 닦기
+                    </button>
+                    <button onclick="clearAllStains()" class="bg-slate-800 hover:bg-slate-700 text-rose-300 text-xs py-1.5 px-3 rounded-lg font-bold transition border border-slate-700" title="즉시 초기화">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 3. Audio & Background Customization -->
+            <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800 flex flex-col justify-between">
+                <div class="text-xs text-slate-400 font-bold mb-1.5"><i class="fa-solid fa-sliders text-purple-400 mr-1"></i> 사운드 & 타겟 사진</div>
+                <div class="flex gap-2">
+                    <button id="btnSound" onclick="toggleSound()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-1.5 px-2 rounded-lg font-bold transition flex items-center justify-center gap-1 border border-slate-700">
+                        <i id="soundIcon" class="fa-solid fa-volume-high text-green-400"></i>
+                        <span id="soundText">소리 ON</span>
+                    </button>
+                    <label class="flex-1 bg-slate-800 hover:bg-slate-700 text-purple-300 text-xs py-1.5 px-2 rounded-lg font-bold cursor-pointer transition border border-slate-700 flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-upload"></i> 사진 교체
+                        <input type="file" id="imageUploader" accept="image/*" class="hidden" onchange="loadCustomImage(event)">
+                    </label>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Statistics Modal -->
+    <div id="statsModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl relative">
+            <button onclick="toggleStatsModal(false)" class="absolute top-4 right-4 text-slate-400 hover:text-white text-lg">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            <h3 class="font-jua text-2xl text-rose-400 flex items-center gap-2">
+                <i class="fa-solid fa-chart-bar"></i> 아이템별 투척 통계
+            </h3>
+            <div id="statsList" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                <!-- Injected via JS -->
+            </div>
+            <div class="pt-2 border-t border-slate-800 flex justify-between items-center">
+                <button onclick="resetStats()" class="text-xs text-rose-400 hover:underline"><i class="fa-solid fa-rotate-left"></i> 통계 리셋</button>
+                <button onclick="toggleStatsModal(false)" class="bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-4 py-2 rounded-lg">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Throwable items data dictionary
+        const ITEMS = {
+            tomato: { id: 'tomato', name: '토마토', icon: '🍅', color: '#ef4444', darkColor: '#b91c1c' },
+            watermelon: { id: 'watermelon', name: '수박', icon: '🍉', color: '#dc2626', darkColor: '#15803d' },
+            poop: { id: 'poop', name: '똥', icon: '💩', color: '#854d0e', darkColor: '#713f12' },
+            money: { id: 'money', name: '돈', icon: '💵', color: '#22c55e', darkColor: '#15803d' },
+            hammer: { id: 'hammer', name: '망치', icon: '🔨', color: '#94a3b8', darkColor: '#475569' },
+            nail: { id: 'nail', name: '못', icon: '📌', color: '#cbd5e1', darkColor: '#64748b' },
+            cigarette: { id: 'cigarette', name: '담배', icon: '🚬', color: '#f59e0b', darkColor: '#78350f' }
+        };
+
+        // DOM elements
+        const gameContainer = document.getElementById('gameContainer');
+        const bgImg = document.getElementById('bgImage');
+        const splatCanvas = document.getElementById('splatCanvas');
+        const splatCtx = splatCanvas.getContext('2d');
+        const fxCanvas = document.getElementById('fxCanvas');
+        const fxCtx = fxCanvas.getContext('2d');
+        const totalHitsEl = document.getElementById('totalHitsEl');
+        const currentItemDisplay = document.getElementById('currentItemDisplay');
+        const headerIcon = document.getElementById('headerIcon');
+        const speedLabel = document.getElementById('speedLabel');
+        const guideBadge = document.getElementById('guideBadge');
+
+        // State variables
+        let width = 0;
+        let height = 0;
+        let selectedItemKey = 'tomato';
+        let fireSpeedMode = 'normal'; // normal (200ms), fast (80ms), storm (40ms)
+        let fireInterval = 200;
+        let soundEnabled = true;
+
+        // Statistics
+        let totalHits = 0;
+        const itemHitCounts = {
+            tomato: 0, watermelon: 0, poop: 0, money: 0, hammer: 0, nail: 0, cigarette: 0
+        };
+
+        // Active game entities
+        let flyingProjectiles = [];
+        let particles = [];
+        let drips = [];
+        let activeFlies = [];
+
+        // Continuous firing flags
+        let isFiring = false;
+        let fireTimer = null;
+        let lastPointerPos = { x: 0, y: 0 };
+
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) audioCtx = new AudioContext();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        // Custom synthesized audio generator per item
+        function playThrowSound() {
+            if (!soundEnabled) return;
+            initAudio();
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(320, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.1);
+            } catch (e) {}
+        }
+
+        function playImpactSound(itemKey) {
+            if (!soundEnabled) return;
+            initAudio();
+            try {
+                const now = audioCtx.currentTime;
+
+                if (itemKey === 'hammer') {
+                    // Heavy crash impact + metallic glass smash
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(120, now);
+                    osc.frequency.exponentialRampToValueAtTime(20, now + 0.25);
+                    gain.gain.setValueAtTime(0.6, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(now + 0.25);
+                } else if (itemKey === 'nail') {
+                    // Metallic sharp clink "Ting!"
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1800, now);
+                    osc.frequency.exponentialRampToValueAtTime(800, now + 0.12);
+                    gain.gain.setValueAtTime(0.3, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(now + 0.12);
+                } else if (itemKey === 'money') {
+                    // Paper fluttering noise
+                    const bufSize = audioCtx.sampleRate * 0.08;
+                    const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+                    const data = buf.getChannelData(0);
+                    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+                    const noise = audioCtx.createBufferSource();
+                    noise.buffer = buf;
+                    const gain = audioCtx.createGain();
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                    noise.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    noise.start();
+                } else if (itemKey === 'poop') {
+                    // Squelchy low wet thud
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(150, now);
+                    osc.frequency.exponentialRampToValueAtTime(40, now + 0.2);
+                    gain.gain.setValueAtTime(0.4, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(now + 0.2);
+                } else if (itemKey === 'cigarette') {
+                    // Sizzle / poof sound
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(600, now);
+                    osc.frequency.exponentialRampToValueAtTime(100, now + 0.08);
+                    gain.gain.setValueAtTime(0.15, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(now + 0.08);
+                } else {
+                    // Tomato & Watermelon wet squish sound
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(itemKey === 'watermelon' ? 140 : 200, now);
+                    osc.frequency.exponentialRampToValueAtTime(30, now + 0.15);
+                    gain.gain.setValueAtTime(0.4, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(now + 0.15);
+                }
+            } catch (e) {}
+        }
+
+        function renderItemToolbar() {
+            const container = document.getElementById('itemToolbar');
+            container.innerHTML = '';
+
+            Object.keys(ITEMS).forEach(key => {
+                const item = ITEMS[key];
+                const btn = document.createElement('button');
+                btn.className = `item-card flex flex-col items-center justify-center p-2 rounded-xl bg-slate-950/80 border border-slate-800 transition-all hover:border-rose-500/50 ${key === selectedItemKey ? 'active' : ''}`;
+                btn.onclick = () => selectItem(key);
+
+                btn.innerHTML = `
+                    <span class="text-2xl mb-0.5">${item.icon}</span>
+                    <span class="text-[11px] font-bold text-slate-200">${item.name}</span>
+                `;
+                container.appendChild(btn);
+            });
+        }
+
+        function selectItem(key) {
+            selectedItemKey = key;
+            renderItemToolbar();
+            const item = ITEMS[key];
+            currentItemDisplay.innerHTML = `<span>${item.icon}</span> ${item.name}`;
+            headerIcon.innerText = item.icon;
+        }
+
+        function resizeCanvas() {
+            const rect = gameContainer.getBoundingClientRect();
+            width = rect.width;
+            height = rect.height;
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = splatCanvas.width || width;
+            tempCanvas.height = splatCanvas.height || height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(splatCanvas, 0, 0);
+
+            splatCanvas.width = width;
+            splatCanvas.height = height;
+            fxCanvas.width = width;
+            fxCanvas.height = height;
+
+            if (tempCanvas.width > 0) {
+                splatCtx.drawImage(tempCanvas, 0, 0, tempCanvas.width, tempCanvas.height, 0, 0, width, height);
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('load', () => {
+            renderItemToolbar();
+            resizeCanvas();
+            requestAnimationFrame(gameLoop);
+        });
+
+        function spawnProjectile(targetX, targetY) {
+            playThrowSound();
+
+            const startX = width / 2 + (Math.random() - 0.5) * (width * 0.4);
+            const startY = height + 40;
+            const speedMultiplier = fireSpeedMode === 'storm' ? 1.4 : (fireSpeedMode === 'fast' ? 1.2 : 1.0);
+
+            flyingProjectiles.push({
+                itemKey: selectedItemKey,
+                startX: startX,
+                startY: startY,
+                targetX: targetX,
+                targetY: targetY,
+                currentX: startX,
+                currentY: startY,
+                progress: 0,
+                speed: 0.08 * speedMultiplier,
+                arcHeight: Math.random() * 70 + 50,
+                rotation: Math.random() * Math.PI * 2,
+                rotSpeed: (Math.random() - 0.5) * 0.4
+            });
+        }
+
+        function createImpact(x, y, itemKey) {
+            totalHits++;
+            itemHitCounts[itemKey]++;
+            totalHitsEl.innerText = totalHits;
+
+            if (guideBadge) guideBadge.style.opacity = '0';
+
+            playImpactSound(itemKey);
+
+            // Screen Shake for Hammer
+            if (itemKey === 'hammer') {
+                gameContainer.classList.remove('heavy-shake');
+                void gameContainer.offsetWidth;
+                gameContainer.classList.add('heavy-shake');
+            }
+
+            splatCtx.save();
+
+            if (itemKey === 'tomato') {
+                // Tomato Splatter
+                drawBlobSplatter(x, y, '#ef4444', '#b91c1c', 22);
+                addDrips(x, y, '#ef4444', 3);
+            } else if (itemKey === 'watermelon') {
+                // Watermelon Splatter with large chunks & green rinds
+                drawBlobSplatter(x, y, '#dc2626', '#991b1b', 36);
+                // Green rind fragments
+                for (let i = 0; i < 5; i++) {
+                    const rx = x + (Math.random() - 0.5) * 50;
+                    const ry = y + (Math.random() - 0.5) * 50;
+                    splatCtx.fillStyle = '#166534';
+                    splatCtx.beginPath();
+                    splatCtx.ellipse(rx, ry, 6, 3, Math.PI * Math.random(), 0, Math.PI * 2);
+                    splatCtx.fill();
+                }
+                addDrips(x, y, '#dc2626', 5);
+            } else if (itemKey === 'poop') {
+                // Poop Stain
+                drawBlobSplatter(x, y, '#78350f', '#451a03', 25);
+                // Add animated stink flies!
+                for (let i = 0; i < 3; i++) {
+                    activeFlies.push({
+                        cx: x, cy: y,
+                        x: x + (Math.random() - 0.5) * 30,
+                        y: y + (Math.random() - 0.5) * 30,
+                        angle: Math.random() * Math.PI * 2,
+                        speed: Math.random() * 0.05 + 0.03,
+                        radius: Math.random() * 25 + 10,
+                        life: 1.0
+                    });
+                }
+            } else if (itemKey === 'money') {
+                // Money stamp & bills
+                splatCtx.fillStyle = 'rgba(34, 197, 94, 0.25)';
+                splatCtx.fillRect(x - 20, y - 10, 40, 20);
+                splatCtx.strokeStyle = '#15803d';
+                splatCtx.lineWidth = 2;
+                splatCtx.strokeRect(x - 20, y - 10, 40, 20);
+
+                // Spawn floating banknote particles
+                for (let i = 0; i < 8; i++) {
+                    particles.push({
+                        type: 'bill',
+                        x: x, y: y,
+                        vx: (Math.random() - 0.5) * 8,
+                        vy: (Math.random() - 0.5) * 8 - 2,
+                        rot: Math.random() * Math.PI,
+                        rotSpeed: (Math.random() - 0.5) * 0.2,
+                        life: 1.0,
+                        decay: 0.012
+                    });
+                }
+            } else if (itemKey === 'hammer') {
+                // Glass spiderweb cracks
+                drawGlassCrack(x, y);
+                // Glass shards particles
+                for (let i = 0; i < 15; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const spd = Math.random() * 7 + 2;
+                    particles.push({
+                        type: 'shard',
+                        x: x, y: y,
+                        vx: Math.cos(angle) * spd,
+                        vy: Math.sin(angle) * spd,
+                        size: Math.random() * 6 + 2,
+                        life: 1.0,
+                        decay: 0.03
+                    });
+                }
+            } else if (itemKey === 'nail') {
+                // Stuck silver nail head & tiny crack
+                splatCtx.fillStyle = '#64748b';
+                splatCtx.beginPath();
+                splatCtx.arc(x, y, 4, 0, Math.PI * 2);
+                splatCtx.fill();
+                splatCtx.fillStyle = '#94a3b8';
+                splatCtx.beginPath();
+                splatCtx.arc(x - 1, y - 1, 2, 0, Math.PI * 2);
+                splatCtx.fill();
+
+                // Spark sparks particles
+                for (let i = 0; i < 10; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const spd = Math.random() * 6 + 2;
+                    particles.push({
+                        type: 'spark',
+                        x: x, y: y,
+                        vx: Math.cos(angle) * spd,
+                        vy: Math.sin(angle) * spd,
+                        life: 1.0,
+                        decay: 0.05
+                    });
+                }
+            } else if (itemKey === 'cigarette') {
+                // Burn / ash mark
+                splatCtx.fillStyle = '#1c1917';
+                splatCtx.beginPath();
+                splatCtx.arc(x, y, 7, 0, Math.PI * 2);
+                splatCtx.fill();
+                splatCtx.fillStyle = '#b45309';
+                splatCtx.beginPath();
+                splatCtx.arc(x, y, 3, 0, Math.PI * 2);
+                splatCtx.fill();
+
+                // Smoke particles
+                for (let i = 0; i < 10; i++) {
+                    particles.push({
+                        type: 'smoke',
+                        x: x + (Math.random() - 0.5) * 6,
+                        y: y,
+                        vx: (Math.random() - 0.5) * 1.5,
+                        vy: -Math.random() * 2 - 1,
+                        radius: Math.random() * 5 + 3,
+                        life: 1.0,
+                        decay: 0.02
+                    });
+                }
+            }
+
+            splatCtx.restore();
+        }
+
+        function drawBlobSplatter(x, y, mainColor, darkColor, baseRadius) {
+            splatCtx.fillStyle = mainColor;
+            splatCtx.globalAlpha = 0.88;
+            splatCtx.beginPath();
+            const points = 10;
+            for (let i = 0; i < points; i++) {
+                const a = (i / points) * Math.PI * 2;
+                const r = baseRadius * (0.6 + Math.random() * 0.6);
+                const px = x + Math.cos(a) * r;
+                const py = y + Math.sin(a) * r;
+                if (i === 0) splatCtx.moveTo(px, py);
+                else splatCtx.lineTo(px, py);
+            }
+            splatCtx.closePath();
+            splatCtx.fill();
+
+            // Inner core
+            splatCtx.fillStyle = darkColor;
+            splatCtx.beginPath();
+            splatCtx.arc(x, y, baseRadius * 0.4, 0, Math.PI * 2);
+            splatCtx.fill();
+
+            // Surrounding droplets
+            for (let i = 0; i < 10; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const d = baseRadius * (1.1 + Math.random() * 1.8);
+                const dr = Math.random() * 4 + 2;
+                splatCtx.fillStyle = Math.random() > 0.4 ? mainColor : darkColor;
+                splatCtx.beginPath();
+                splatCtx.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, dr, 0, Math.PI * 2);
+                splatCtx.fill();
+            }
+        }
+
+        function drawGlassCrack(cx, cy) {
+            splatCtx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+            splatCtx.lineWidth = 1.5;
+
+            const rays = Math.floor(Math.random() * 5 + 6);
+            for (let i = 0; i < rays; i++) {
+                const angle = (i / rays) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+                const dist = Math.random() * 40 + 30;
+                let currX = cx;
+                let currY = cy;
+
+                splatCtx.beginPath();
+                splatCtx.moveTo(currX, currY);
+
+                const steps = 3;
+                for (let s = 1; s <= steps; s++) {
+                    const stepD = (dist / steps);
+                    currX += Math.cos(angle + (Math.random() - 0.5) * 0.4) * stepD;
+                    currY += Math.sin(angle + (Math.random() - 0.5) * 0.4) * stepD;
+                    splatCtx.lineTo(currX, currY);
+                }
+                splatCtx.stroke();
+            }
+
+            // Concentric rings
+            for (let r = 10; r <= 35; r += 12) {
+                splatCtx.beginPath();
+                splatCtx.arc(cx, cy, r + (Math.random() - 0.5) * 4, 0, Math.PI * 2);
+                splatCtx.stroke();
+            }
+        }
+
+        function addDrips(x, y, color, count) {
+            for (let i = 0; i < count; i++) {
+                drips.push({
+                    x: x + (Math.random() - 0.5) * 20,
+                    y: y + 5,
+                    radius: Math.random() * 2.5 + 1.5,
+                    length: 0,
+                    maxLength: Math.random() * 50 + 20,
+                    speed: Math.random() * 1.2 + 0.4,
+                    color: color
+                });
+            }
+        }
+
+        function gameLoop() {
+            fxCtx.clearRect(0, 0, width, height);
+
+            // 1. Process Dripping Liquids
+            for (let i = drips.length - 1; i >= 0; i--) {
+                const d = drips[i];
+                if (d.length < d.maxLength) {
+                    d.length += d.speed;
+                    splatCtx.save();
+                    splatCtx.fillStyle = d.color;
+                    splatCtx.globalAlpha = 0.85;
+                    splatCtx.beginPath();
+                    splatCtx.arc(d.x, d.y + d.length, d.radius, 0, Math.PI * 2);
+                    splatCtx.fill();
+                    splatCtx.restore();
+                } else {
+                    drips.splice(i, 1);
+                }
+            }
+
+            // 2. Render Stink Flies for Poop
+            for (let i = activeFlies.length - 1; i >= 0; i--) {
+                const fly = activeFlies[i];
+                fly.angle += fly.speed;
+                fly.x = fly.cx + Math.cos(fly.angle) * fly.radius;
+                fly.y = fly.cy + Math.sin(fly.angle * 1.5) * (fly.radius * 0.6);
+
+                fxCtx.fillStyle = '#000000';
+                fxCtx.beginPath();
+                fxCtx.arc(fly.x, fly.y, 1.8, 0, Math.PI * 2);
+                fxCtx.fill();
+                // Wing
+                fxCtx.fillStyle = 'rgba(255,255,255,0.7)';
+                fxCtx.fillRect(fly.x - 1, fly.y - 2, 2, 1.5);
+            }
+
+            // 3. Render Particles (Shards, Sparks, Smoke, Money)
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= p.decay;
+
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                fxCtx.save();
+                fxCtx.globalAlpha = p.life;
+
+                if (p.type === 'bill') {
+                    p.vy += 0.1; // gravity
+                    p.rot += p.rotSpeed;
+                    fxCtx.translate(p.x, p.y);
+                    fxCtx.rotate(p.rot);
+                    fxCtx.fillStyle = '#22c55e';
+                    fxCtx.fillRect(-12, -6, 24, 12);
+                    fxCtx.fillStyle = '#ffffff';
+                    fxCtx.font = 'bold 8px sans-serif';
+                    fxCtx.fillText('₩', -3, 3);
+                } else if (p.type === 'smoke') {
+                    p.radius += 0.2;
+                    fxCtx.fillStyle = '#a8a29e';
+                    fxCtx.beginPath();
+                    fxCtx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    fxCtx.fill();
+                } else if (p.type === 'spark') {
+                    fxCtx.fillStyle = '#f59e0b';
+                    fxCtx.beginPath();
+                    fxCtx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+                    fxCtx.fill();
+                } else if (p.type === 'shard') {
+                    p.vy += 0.2;
+                    fxCtx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                    fxCtx.fillRect(p.x, p.y, p.size, p.size);
+                }
+
+                fxCtx.restore();
+            }
+
+            // 4. Render Flying Projectiles
+            for (let i = flyingProjectiles.length - 1; i >= 0; i--) {
+                const p = flyingProjectiles[i];
+                p.progress += p.speed;
+                p.rotation += p.rotSpeed;
+
+                if (p.progress >= 1) {
+                    createImpact(p.targetX, p.targetY, p.itemKey);
+                    flyingProjectiles.splice(i, 1);
+                    continue;
+                }
+
+                const linearX = p.startX + (p.targetX - p.startX) * p.progress;
+                const linearY = p.startY + (p.targetY - p.startY) * p.progress;
+                const arc = Math.sin(p.progress * Math.PI) * p.arcHeight;
+
+                p.currentX = linearX;
+                p.currentY = linearY - arc;
+
+                const item = ITEMS[p.itemKey];
+
+                fxCtx.save();
+                fxCtx.translate(p.currentX, p.currentY);
+                fxCtx.rotate(p.rotation);
+                fxCtx.font = '28px sans-serif';
+                fxCtx.textAlign = 'center';
+                fxCtx.textBaseline = 'middle';
+                fxCtx.fillText(item.icon, 0, 0);
+                fxCtx.restore();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function getPointerPos(e) {
+            const rect = gameContainer.getBoundingClientRect();
+            let clientX = e.clientX;
+            let clientY = e.clientY;
+
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            }
+
+            return { x: clientX - rect.left, y: clientY - rect.top };
+        }
+
+        function startFiring(e) {
+            if (e.cancelable && e.type.startsWith('touch')) e.preventDefault();
+            isFiring = true;
+            lastPointerPos = getPointerPos(e);
+
+            spawnProjectile(lastPointerPos.x, lastPointerPos.y);
+
+            clearInterval(fireTimer);
+            fireTimer = setInterval(() => {
+                if (isFiring) {
+                    const scatter = fireSpeedMode === 'storm' ? 24 : 12;
+                    const jx = lastPointerPos.x + (Math.random() - 0.5) * scatter;
+                    const jy = lastPointerPos.y + (Math.random() - 0.5) * scatter;
+                    spawnProjectile(jx, jy);
+                }
+            }, fireInterval);
+        }
+
+        function updatePointer(e) {
+            if (!isFiring) return;
+            if (e.cancelable && e.type.startsWith('touch')) e.preventDefault();
+            lastPointerPos = getPointerPos(e);
+        }
+
+        function stopFiring() {
+            isFiring = false;
+            clearInterval(fireTimer);
+        }
+
+        gameContainer.addEventListener('mousedown', startFiring);
+        window.addEventListener('mousemove', updatePointer);
+        window.addEventListener('mouseup', stopFiring);
+
+        gameContainer.addEventListener('touchstart', startFiring, { passive: false });
+        window.addEventListener('touchmove', updatePointer, { passive: false });
+        window.addEventListener('touchend', stopFiring);
+        window.addEventListener('touchcancel', stopFiring);
+
+        function setFireSpeed(mode) {
+            fireSpeedMode = mode;
+            document.querySelectorAll('.speed-btn').forEach(b => {
+                b.className = 'speed-btn bg-slate-800 text-slate-300 text-xs py-1.5 rounded-lg font-bold transition hover:bg-slate-700';
+            });
+
+            if (mode === 'normal') {
+                fireInterval = 200;
+                document.getElementById('btnSpeedNormal').className = 'speed-btn bg-rose-600 text-white text-xs py-1.5 rounded-lg font-bold transition hover:bg-rose-500';
+                speedLabel.innerText = '보통 (초당 5발)';
+            } else if (mode === 'fast') {
+                fireInterval = 80;
+                document.getElementById('btnSpeedFast').className = 'speed-btn bg-rose-600 text-white text-xs py-1.5 rounded-lg font-bold transition hover:bg-rose-500';
+                speedLabel.innerText = '빠르게 (초당 12발)';
+            } else if (mode === 'storm') {
+                fireInterval = 40;
+                document.getElementById('btnSpeedStorm').className = 'speed-btn bg-rose-600 text-white text-xs py-1.5 rounded-lg font-bold transition hover:bg-rose-500';
+                speedLabel.innerText = '⚡ 폭풍연사 (초당 25발)';
+            }
+        }
+
+        function wipeScreen() {
+            const overlay = document.getElementById('wiperOverlay');
+            overlay.classList.remove('hidden');
+
+            let pos = -60;
+            const wiperInterval = setInterval(() => {
+                pos += 18;
+                overlay.style.left = pos + 'px';
+                splatCtx.clearRect(0, 0, pos + 25, height);
+
+                if (pos > width + 60) {
+                    clearInterval(wiperInterval);
+                    overlay.classList.add('hidden');
+                    clearAllStains();
+                }
+            }, 16);
+        }
+
+        function clearAllStains() {
+            splatCtx.clearRect(0, 0, width, height);
+            drips = [];
+            activeFlies = [];
+            particles = [];
+        }
+
+        function loadCustomImage(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(evt) {
+                    bgImg.src = evt.target.result;
+                    clearAllStains();
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            const soundIcon = document.getElementById('soundIcon');
+            const soundText = document.getElementById('soundText');
+            if (soundEnabled) {
+                soundIcon.className = 'fa-solid fa-volume-high text-green-400';
+                soundText.innerText = '소리 ON';
+            } else {
+                soundIcon.className = 'fa-solid fa-volume-xmark text-slate-500';
+                soundText.innerText = '소리 OFF';
+            }
+        }
+
+        function toggleStatsModal(show) {
+            const modal = document.getElementById('statsModal');
+            if (show) {
+                renderStatsList();
+                modal.classList.remove('hidden');
+            } else {
+                modal.classList.add('hidden');
+            }
+        }
+
+        function renderStatsList() {
+            const listContainer = document.getElementById('statsList');
+            listContainer.innerHTML = '';
+
+            Object.keys(ITEMS).forEach(key => {
+                const item = ITEMS[key];
+                const count = itemHitCounts[key];
+                const row = document.createElement('div');
+                row.className = 'flex items-center justify-between bg-slate-950/70 px-3 py-2 rounded-xl border border-slate-800';
+                row.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="text-xl">${item.icon}</span>
+                        <span class="text-xs font-bold text-slate-200">${item.name}</span>
+                    </div>
+                    <span class="font-jua text-lg text-rose-400">${count} 회</span>
+                `;
+                listContainer.appendChild(row);
+            });
+        }
+
+        function resetStats() {
+            totalHits = 0;
+            totalHitsEl.innerText = '0';
+            Object.keys(itemHitCounts).forEach(k => itemHitCounts[k] = 0);
+            renderStatsList();
+        }
+    </script>
+</body>
+</html>
